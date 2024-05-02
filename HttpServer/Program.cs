@@ -8,7 +8,7 @@ using System.Linq;
 CancellationTokenSource isStopCTS = new CancellationTokenSource();
 CancellationTokenSource isStartCTS = new CancellationTokenSource();
 ServerArgs serverArgs = new ServerArgs(args);
-string url = $"http://{serverArgs.IP}:{serverArgs.Port}/";
+string url = $"{Uri.UriSchemeHttp}://{serverArgs.IP}:{serverArgs.Port}/";
 string Root = serverArgs.Root;
 Console.WriteLine($"当前目录：{Root}");
 HttpListener httpListener = new HttpListener();
@@ -16,7 +16,6 @@ httpListener.Prefixes.Add(url);
 httpListener.Start();
 Console.CancelKeyPress += (obj, e) =>
 {
-
     isStartCTS.Cancel();
     while (!isStopCTS.Token.IsCancellationRequested) Thread.Sleep(100);
     e.Cancel = true;
@@ -94,7 +93,7 @@ while (true)
                 }
                 catch (Exception e)
                 {
-                    Console.WriteLine(e);
+                    Console.WriteLine(e.Message);
                 }
                 finally
                 {
@@ -115,27 +114,18 @@ isStopCTS.Cancel();
 
 string GetFileSize(long size)
 {
-    string sizeText = $"{size} B";
-    if (size > 1024L * 1024L * 1024L * 1024L)
+    return size switch
     {
-        sizeText = $"{size /1024 / 1024/1024/1024} TB";
-    }
-    else if(size > 1024 * 1024 * 1024)
-    {
-        sizeText = $"{size / 1024 / 1024/1024} GB";
-    }
-    else if (size > 1024*1024)
-    {
-        sizeText = $"{size / 1024/1024} MB";
-    }
-    else if(size > 1024)
-    {
-        sizeText = $"{size / 1024} KB";
-    }
-    return sizeText;
+        > 1024L * 1024L * 1024L * 1024L => $"{size / 1024 / 1024 / 1024 / 1024} TB",
+        > 1024 * 1024 * 1024            => $"{size / 1024 / 1024 / 1024} GB",
+        > 1024 * 1024                   => $"{size / 1024 / 1024} MB",
+        > 1024                          => $"{size / 1024} KB",
+        _                               => $"{size} B"
+    };
 }
 bool PathIsOk(string path)
 {
+
     // 检查路径是否以根目录开始
     if (Path.IsPathRooted(path))
     {
