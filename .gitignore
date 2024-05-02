@@ -1,0 +1,5 @@
+/.vs
+/HttpServer/Properties
+/HttpServer/bin
+/HttpServer/obj
+/HttpServer/HttpServer.csproj.user
