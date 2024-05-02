@@ -29,14 +29,12 @@ while (isStart)
         {
             var req = HttpContext.Request;
             var res = HttpContext.Response;
-            
             try
             {
                 var AbsolutePath = req?.Url?.AbsolutePath?.TrimStart('/');
                 if (AbsolutePath != null)
                 {
                     AbsolutePath=Uri.UnescapeDataString(AbsolutePath);
-                    
                     using TextWriter TextBody = new StreamWriter(res.OutputStream);
                     using StreamWriter StreamBody = new StreamWriter(res.OutputStream);
                     var path = $"{Root}{AbsolutePath}";
@@ -55,8 +53,7 @@ while (isStart)
                                 "</tr></thead>");
                             TextBody.Write("<tbody>");
                             var _root = Path.GetRelativePath(Root, path);
-                            
-                            if(!isRoot) TextBody.WriteLine(@$"<tr><td><a href=""../"">返回上一级</a></td></tr>");
+                            if(!isRoot) TextBody.WriteLine(@$"<tr><td><a href=""/{AbsolutePath.Trim('/')}/../"">返回上一级</a></td></tr>");
                             foreach (var dir in Directory.GetDirectories(path))
                             {
                                 TextBody.WriteLine("<tr>");
