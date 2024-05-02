@@ -5,9 +5,9 @@ using System.IO;
 using System.Threading;
 using System.Collections.Generic;
 using System.Linq;
+CancellationTokenSource isStopCTS = new CancellationTokenSource();
+CancellationTokenSource isStartCTS = new CancellationTokenSource();
 ServerArgs serverArgs = new ServerArgs(args);
-bool isStart = true;
-bool isStop = false;
 string url = $"http://{serverArgs.IP}:{serverArgs.Port}/";
 string Root = serverArgs.Root;
 Console.WriteLine($"当前目录：{Root}");
@@ -16,90 +16,102 @@ httpListener.Prefixes.Add(url);
 httpListener.Start();
 Console.CancelKeyPress += (obj, e) =>
 {
-    isStart = false;
-    while (!isStop) Thread.Sleep(100);
+
+    isStartCTS.Cancel();
+    while (!isStopCTS.Token.IsCancellationRequested) Thread.Sleep(100);
     e.Cancel = true;
 };
 Console.WriteLine($"正在监听:{url}");
-while (isStart)
+Console.WriteLine($"按 Ctrl+C 退出");
+while (true)
 {
-    ThreadPool.QueueUserWorkItem(async obj =>
+    var _ctTask = httpListener.GetContextAsync();
+    try
     {
-        if (obj is HttpListenerContext HttpContext)
+        _ctTask.Wait(-1, isStartCTS.Token);
+        ThreadPool.QueueUserWorkItem(async obj =>
         {
-            var req = HttpContext.Request;
-            var res = HttpContext.Response;
-            try
+            if (obj is HttpListenerContext HttpContext)
             {
-                var AbsolutePath = req?.Url?.AbsolutePath?.TrimStart('/');
-                if (AbsolutePath != null)
+                var req = HttpContext.Request;
+                var res = HttpContext.Response;
+                try
                 {
-                    AbsolutePath=Uri.UnescapeDataString(AbsolutePath);
-                    using TextWriter TextBody = new StreamWriter(res.OutputStream);
-                    using StreamWriter StreamBody = new StreamWriter(res.OutputStream);
-                    var path = $"{Root}{AbsolutePath}";
-                    var isRoot = AbsolutePath == "";
-                    if (PathIsOk(path))
+                    var AbsolutePath = req?.Url?.AbsolutePath?.TrimStart('/');
+                    if (AbsolutePath != null)
                     {
-                        if (Directory.Exists(path))
+                        AbsolutePath = Uri.UnescapeDataString(AbsolutePath);
+                        using TextWriter TextBody = new StreamWriter(res.OutputStream);
+                        using StreamWriter StreamBody = new StreamWriter(res.OutputStream);
+                        var path = $"{Root}{AbsolutePath}";
+                        var isRoot = AbsolutePath == "";
+                        if (PathIsOk(path))
                         {
-                            res.ContentType = "text/html; charset=UTF-8";
-                            res.ContentEncoding = Encoding.UTF8;
-                            TextBody.Write("<table border=\"1\" style=\"min-width: 600px;\">");
-                            TextBody.Write("<thead>" +
-                                "<tr><th scope=\"col\">路径</th>" +
-                                "<th scope=\"col\">类型</th>" +
-                                "<th scope=\"col\">大小</th>" +
-                                "</tr></thead>");
-                            TextBody.Write("<tbody>");
-                            var _root = Path.GetRelativePath(Root, path);
-                            if(!isRoot) TextBody.WriteLine(@$"<tr><td><a href=""/{AbsolutePath.Trim('/')}/../"">返回上一级</a></td></tr>");
-                            foreach (var dir in Directory.GetDirectories(path))
+                            if (Directory.Exists(path))
                             {
-                                TextBody.WriteLine("<tr>");
-                                var relativePath = Path.GetRelativePath(Root, dir);
-                                TextBody.WriteLine(@$"<td><a href=""/{relativePath}"">{relativePath}</a></td>");
-                                TextBody.WriteLine(@$"<td>目录</td>");
-                                TextBody.WriteLine(@$"<td></td>");
-                                TextBody.WriteLine("</tr>");
+                                res.ContentType = "text/html; charset=UTF-8";
+                                res.ContentEncoding = Encoding.UTF8;
+                                TextBody.Write("<table border=\"1\" style=\"min-width: 600px;\">");
+                                TextBody.Write("<thead>" +
+                                    "<tr><th scope=\"col\">路径</th>" +
+                                    "<th scope=\"col\">类型</th>" +
+                                    "<th scope=\"col\">大小</th>" +
+                                    "</tr></thead>");
+                                TextBody.Write("<tbody>");
+                                var _root = Path.GetRelativePath(Root, path);
+                                if (!isRoot) TextBody.WriteLine(@$"<tr><td><a href=""/{AbsolutePath.Trim('/')}/../"">返回上一级</a></td></tr>");
+                                foreach (var dir in Directory.GetDirectories(path))
+                                {
+                                    TextBody.WriteLine("<tr>");
+                                    var relativePath = Path.GetRelativePath(Root, dir);
+                                    TextBody.WriteLine(@$"<td><a href=""/{relativePath}"">{relativePath}</a></td>");
+                                    TextBody.WriteLine(@$"<td>目录</td>");
+                                    TextBody.WriteLine(@$"<td></td>");
+                                    TextBody.WriteLine("</tr>");
+                                }
+                                foreach (var filePath in Directory.GetFiles(path))
+                                {
+                                    TextBody.WriteLine("<tr>");
+                                    TextBody.WriteLine(@$"<td><a href=""/{Path.GetRelativePath(Root, filePath)}"">{Path.GetFileName(filePath)}</a></td>");
+                                    TextBody.WriteLine(@$"<td>文件</td>");
+                                    TextBody.WriteLine(@$"<td>{GetFileSize(new FileInfo(filePath).Length)}</td>");
+                                    TextBody.WriteLine("</tr>");
+                                }
+                                TextBody.Write("</tbody>");
+                                TextBody.Write("</table>");
+                                TextBody.Flush();
                             }
-                            foreach (var filePath in Directory.GetFiles(path))
+                            else if (File.Exists(path))
                             {
-                                TextBody.WriteLine("<tr>");
-                                TextBody.WriteLine(@$"<td><a href=""/{Path.GetRelativePath(Root, filePath)}"">{Path.GetFileName(filePath)}</a></td>");
-                                TextBody.WriteLine(@$"<td>文件</td>");
-                                TextBody.WriteLine(@$"<td>{GetFileSize(new FileInfo(filePath).Length)}</td>");
-                                TextBody.WriteLine("</tr>");
+                                using var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read);
+                                await fileStream.CopyToAsync(StreamBody.BaseStream);
+                                res.ContentType = "application/octet-stream";
                             }
-                            TextBody.Write("</tbody>");
-                            TextBody.Write("</table>");
-                            TextBody.Flush();
+
                         }
-                        else if (File.Exists(path))
-                        {
-                            using var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read);
-                            await fileStream.CopyToAsync(StreamBody.BaseStream);
-                            res.ContentType = "application/octet-stream";
-                        }
-                        
+
                     }
-                    
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                }
+                finally
+                {
+                    res.OutputStream.Close();
                 }
             }
-            catch (Exception e)
-            {
-                Console.WriteLine(e);
-            }
-            finally
-            {
-                res.OutputStream.Close();
-            }
-        }
-    }, httpListener.GetContext());
+        }, _ctTask.Result);
+    }
+    catch (Exception)
+    {
+        break;
+    }
+    
 }
 Console.WriteLine("正在停止。。。");
 httpListener.Stop();
-isStop = true;
+isStopCTS.Cancel();
 
 string GetFileSize(long size)
 {
